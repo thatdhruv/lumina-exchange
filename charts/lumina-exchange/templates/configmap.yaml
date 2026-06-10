@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "lumina-exchange.fullname" . }}-config
+  labels:
+    {{- include "lumina-exchange.labels" . | nindent 4 }}
+data:
+  SPRING_KAFKA_BOOTSTRAP_SERVERS: {{ .Values.config.kafkaBootstrapServers | quote }}
+  SPRING_DATA_REDIS_HOST: {{ .Values.config.redisHost | quote }}
+  SPRING_DATA_REDIS_PORT: {{ .Values.config.redisPort | quote }}
+  SERVER_PORT: {{ .Values.config.serverPort | quote }}
+  GRPC_SERVER_PORT: {{ .Values.config.grpcPort | quote }}
+  MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: "health,info,prometheus"
+  MANAGEMENT_METRICS_EXPORT_PROMETHEUS_ENABLED: "true"
+  MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED: "true"
+  MANAGEMENT_HEALTH_LIVENESSSTATE_ENABLED: "true"
+  MANAGEMENT_HEALTH_READINESSSTATE_ENABLED: "true"
