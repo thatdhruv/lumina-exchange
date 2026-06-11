@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Lumina Exchange",
-  description: "Enterprise trading console — Next.js + Spring Boot demo",
+  description: "Lumina Exchange trading console — order book, execution, and trade history",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

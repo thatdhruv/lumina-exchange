@@ -5,24 +5,24 @@ Distributed high-frequency trading engine built with Java 21, Spring Boot 3, Apa
 ## Architecture
 
 ```
-                         ┌─────────────────────────────────────────────────────────┐
-                         │                    Lumina Exchange App                   │
-  Clients ──────────────►│  REST :8080          gRPC :9090        /actuator/prometheus│
-  (curl / grpcurl)       │       │                  │                      │         │
-                         │       ▼                  ▼                      │         │
-                         │  OrderController   OrderGrpcService              │         │
-                         │       │                  │                      │         │
-                         │       └────────┬─────────┘                      │         │
-                         │                ▼                                │         │
-                         │         OrderService ◄── ExchangeMetrics ───────┘         │
-                         │                │                                          │
-                         │                ▼                                          │
-                         │        MatchingEngine (in-memory order book)              │
-                         │                │                                          │
-                         │     ┌──────────┴──────────┐                               │
-                         │     ▼                     ▼                               │
-                         │ OrderEventPublisher   OrderStore                          │
-                         └─────┬─────────────────────┬─────────────────────────────┘
+                                                Lumina Exchange App
+                         ┌────────────────────────────────────────────────────────────┐
+  Clients ──────────────►│ REST :8080          gRPC :9090        /actuator/prometheus │
+  (curl / grpcurl)       │       │                  │                      │          │
+                         │       ▼                  ▼                      │          │
+                         │  OrderController   OrderGrpcService             │          │
+                         │       │                  │                      │          │
+                         │       └────────┬─────────┘                      │          │
+                         │                ▼                                │          │
+                         │         OrderService ◄── ExchangeMetrics ───────┘          │
+                         │                │                                           │
+                         │                ▼                                           │
+                         │        MatchingEngine (in-memory order book)               │
+                         │                │                                           │
+                         │     ┌──────────┴──────────┐                                │
+                         │     ▼                     ▼                                │
+                         │ OrderEventPublisher   OrderStore                           │
+                         └─────┬─────────────────────┬────────────────────────────────┘
                                │                     │
                                ▼                     │
                     ┌──────────────────┐             │
@@ -31,7 +31,7 @@ Distributed high-frequency trading engine built with Java 21, Spring Boot 3, Apa
                     │ orders.cancelled │             │
                     │ trades.executed ─┼──► TradeExecutedConsumer
                     └──────────────────┘             │
-                                                       ▼
+                                                     ▼
                                               ┌─────────────────┐
                                               │  Redis Ledger   │
                                               │ trade:{id}      │

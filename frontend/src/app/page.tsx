@@ -3,6 +3,7 @@
 import { api } from "@/lib/api";
 import type { Order } from "@/lib/types";
 import { useCallback, useState } from "react";
+import { Footer } from "@/components/Footer";
 import { Header } from "@/components/Header";
 import { OpenOrdersPanel, OrderForm } from "@/components/OrderForm";
 import { OrderBookPanel } from "@/components/OrderBookPanel";
@@ -48,19 +49,12 @@ export default function TradingDashboard() {
           <OrderBookPanel symbol={symbol} refreshKey={refreshKey} />
         </div>
 
-        <div className="lg:col-span-3 space-y-4">
+        <div className="lg:col-span-3">
           <TradeFeed symbol={symbol} refreshKey={refreshKey} />
-          <section className="panel p-4 text-xs text-gray-400">
-            <h3 className="mb-2 font-semibold text-gray-200">Demo flow for interview</h3>
-            <ol className="list-decimal space-y-1 pl-4">
-              <li>Place a LIMIT SELL — order rests on the book</li>
-              <li>Place a matching BUY — engine fills &amp; emits Kafka events</li>
-              <li>Watch trades appear in Redis-backed feed</li>
-              <li>Show metrics at <code className="text-accent">/actuator/prometheus</code></li>
-            </ol>
-          </section>
         </div>
       </div>
+
+      <Footer />
     </div>
   );
 }
