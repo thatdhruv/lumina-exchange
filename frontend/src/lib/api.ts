@@ -6,7 +6,9 @@ import type {
   Trade,
 } from "./types";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
+// Same-origin requests are proxied to Spring Boot via next.config rewrites.
+// Set API_INTERNAL_URL=http://app:8080 in Docker; defaults to localhost for local dev.
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {

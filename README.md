@@ -61,7 +61,22 @@ cd lumina-exchange
 docker compose up --build
 ```
 
-Wait until all services are healthy (~60 s). The stack runs **Kafka (KRaft, no Zookeeper)**, Redis, and the app on `8080` (REST) and `9090` (gRPC).
+Wait until all services are healthy (~60 s). The stack runs **Kafka (KRaft)**, Redis, the Spring Boot API (`8080` / `9090`), and the **Next.js UI** (`3000`).
+
+| Service | URL |
+|---------|-----|
+| Trading UI | http://localhost:3000 |
+| REST API | http://localhost:8080 |
+| gRPC | localhost:9090 |
+| Prometheus | http://localhost:8080/actuator/prometheus |
+
+### Frontend only (local dev)
+
+```bash
+cd frontend
+npm install
+NEXT_PUBLIC_API_URL=http://localhost:8080 npm run dev
+```
 
 ## REST API examples
 
@@ -317,3 +332,4 @@ docker-compose.yml        Local full stack
 | 1 | In-memory order book, REST API, matching engine tests |
 | 2 | Kafka events, Redis trade ledger, gRPC, Docker Compose |
 | 3 | Prometheus metrics, Resilience4j circuit breaker, Helm/K8s |
+| 4 | Next.js TypeScript trading console (full-stack demo) |

@@ -6,7 +6,9 @@ COPY src ./src
 RUN mvn -q -DskipTests package
 
 FROM eclipse-temurin:21-jre-alpine AS runtime
-RUN addgroup -g 1001 -S lumina && adduser -u 1001 -S lumina -G lumina
+RUN apk add --no-cache wget \
+    && addgroup -g 1001 -S lumina \
+    && adduser -u 1001 -S lumina -G lumina
 WORKDIR /app
 COPY --from=builder /build/target/orderbook-0.3.0-SNAPSHOT.jar app.jar
 RUN chown -R lumina:lumina /app
