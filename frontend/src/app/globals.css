@@ -1,0 +1,41 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  @apply bg-surface text-gray-100 antialiased;
+  background-image: radial-gradient(
+    ellipse 80% 50% at 50% -20%,
+    rgba(88, 166, 255, 0.12),
+    transparent
+  );
+}
+
+.panel {
+  @apply rounded-xl border border-surface-border bg-surface-raised/80 backdrop-blur-sm;
+}
+
+.input {
+  @apply w-full rounded-lg border border-surface-border bg-surface px-3 py-2 font-mono text-sm
+    outline-none transition focus:border-accent focus:ring-1 focus:ring-accent;
+}
+
+.btn {
+  @apply rounded-lg px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50;
+}
+
+.btn-buy {
+  @apply btn bg-bid/20 text-bid hover:bg-bid/30;
+}
+
+.btn-sell {
+  @apply btn bg-ask/20 text-ask hover:bg-ask/30;
+}
+
+.btn-ghost {
+  @apply btn border border-surface-border text-gray-300 hover:bg-surface-border/40;
+}
