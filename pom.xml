@@ -21,7 +21,7 @@
         <java.version>25</java.version>
         <jqwik.version>1.10.2</jqwik.version>
         <jmh.version>1.37</jmh.version>
-        <jacoco.version>0.8.14</jacoco.version>
+        <jacoco.version>0.8.15</jacoco.version>
         <jacoco.minimum.coverage>0.90</jacoco.minimum.coverage>
     </properties>
 
