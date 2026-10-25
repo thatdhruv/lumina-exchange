@@ -1,0 +1,85 @@
+# Single-node Kafka (KRaft) and Postgres for local clusters (kind, minikube, k3d, Docker Desktop).
+# Not for production: no persistence, no replication, no auth. Use managed services or operators
+# (Strimzi, CloudNativePG) and point the chart at them via values.
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+spec:
+  selector: { app: postgres }
+  ports:
+    - port: 5432
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: postgres }
+  template:
+    metadata:
+      labels: { app: postgres }
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:17-alpine
+          env:
+            - { name: POSTGRES_DB, value: lumina }
+            - { name: POSTGRES_USER, value: lumina }
+            - { name: POSTGRES_PASSWORD, value: lumina }
+          ports:
+            - containerPort: 5432
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "lumina", "-d", "lumina"]
+            periodSeconds: 3
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka
+spec:
+  selector: { app: kafka }
+  ports:
+    - port: 9092
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: kafka }
+  template:
+    metadata:
+      labels: { app: kafka }
+    spec:
+      containers:
+        - name: kafka
+          image: apache/kafka:4.1.0
+          env:
+            - { name: KAFKA_NODE_ID, value: "1" }
+            - { name: KAFKA_PROCESS_ROLES, value: "broker,controller" }
+            - { name: KAFKA_LISTENERS, value: "PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093" }
+            - { name: KAFKA_ADVERTISED_LISTENERS, value: "PLAINTEXT://kafka:9092" }
+            - { name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP, value: "PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT" }
+            - { name: KAFKA_CONTROLLER_LISTENER_NAMES, value: "CONTROLLER" }
+            - { name: KAFKA_INTER_BROKER_LISTENER_NAME, value: "PLAINTEXT" }
+            - { name: KAFKA_CONTROLLER_QUORUM_VOTERS, value: "1@localhost:9093" }
+            - { name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR, value: "1" }
+            - { name: KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR, value: "1" }
+            - { name: KAFKA_TRANSACTION_STATE_LOG_MIN_ISR, value: "1" }
+            - { name: KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS, value: "0" }
+          ports:
+            - containerPort: 9092
+          readinessProbe:
+            tcpSocket: { port: 9092 }
+            initialDelaySeconds: 10
+            periodSeconds: 3
+          resources:
+            requests: { cpu: 200m, memory: 512Mi }

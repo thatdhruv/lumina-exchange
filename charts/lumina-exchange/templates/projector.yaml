@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "lumina.fullname" . }}-projector
+  labels:
+    {{- include "lumina.labels" . | nindent 4 }}
+    app.kubernetes.io/component: projector
+spec:
+  replicas: {{ .Values.projector.replicas }}
+  selector:
+    matchLabels:
+      {{- include "lumina.selector" (dict "ctx" . "role" "projector") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "lumina.selector" (dict "ctx" . "role" "projector") | nindent 8 }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      containers:
+        {{- include "lumina.container" (dict "ctx" . "role" "projector" "resources" .Values.projector.resources) | nindent 8 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+# Selects every role so Prometheus can scrape the management port of all pods through one service.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "lumina.fullname" . }}-metrics
+  labels:
+    {{- include "lumina.labels" . | nindent 4 }}
+    app.kubernetes.io/component: metrics
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: {{ include "lumina.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: management
+      port: 8081

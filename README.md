@@ -1,335 +1,112 @@
 # Lumina Exchange
 
-Distributed high-frequency trading engine built with Java 21, Spring Boot 3, Apache Kafka, Redis, gRPC, and Kubernetes.
-
-## Architecture
+An event-sourced limit order book matching engine. Java 25, Spring Boot 4, Kafka, PostgreSQL,
+Next.js 16. Built to scale by partitioning symbols, not by cloning a stateful process.
 
 ```
-                                                Lumina Exchange App
-                         ┌────────────────────────────────────────────────────────────┐
-  Clients ──────────────►│ REST :8080          gRPC :9090        /actuator/prometheus │
-  (curl / grpcurl)       │       │                  │                      │          │
-                         │       ▼                  ▼                      │          │
-                         │  OrderController   OrderGrpcService             │          │
-                         │       │                  │                      │          │
-                         │       └────────┬─────────┘                      │          │
-                         │                ▼                                │          │
-                         │         OrderService ◄── ExchangeMetrics ───────┘          │
-                         │                │                                           │
-                         │                ▼                                           │
-                         │        MatchingEngine (in-memory order book)               │
-                         │                │                                           │
-                         │     ┌──────────┴──────────┐                                │
-                         │     ▼                     ▼                                │
-                         │ OrderEventPublisher   OrderStore                           │
-                         └─────┬─────────────────────┬────────────────────────────────┘
-                               │                     │
-                               ▼                     │
-                    ┌──────────────────┐             │
-                    │      Kafka       │             │
-                    │ orders.placed    │             │
-                    │ orders.cancelled │             │
-                    │ trades.executed ─┼──► TradeExecutedConsumer
-                    └──────────────────┘             │
-                                                     ▼
-                                              ┌─────────────────┐
-                                              │  Redis Ledger   │
-                                              │ trade:{id}      │
-                                              │ trades:{symbol} │
-                                              └────────┬────────┘
-                                                       │
-                         GET /api/v1/trades/{symbol} ◄─┘
-                         (Resilience4j circuit breaker: redis-ledger)
+ clients ──REST/gRPC/SSE──▶ api ──command──▶ exchange.commands ──▶ engine ──events──▶ exchange.events
+                             ▲   (Kafka, key = symbol, partitioned)   (one owner      │        │
+                             │                                         per partition)  │        ▼
+                             └──────── answer to my command, live market data ◀───────┘   projector ──▶ PostgreSQL
+                                                                                              │
+                                              reads: order lookup, depth, trades ◀────────────┘
 ```
 
-## Prerequisites
+| Role | What it does | Scales by |
+|------|--------------|-----------|
+| `api` | Validates, appends a command to the log, waits for the engine's answer. Serves reads from Postgres and live data over SSE. gRPC too. | Replicas + HPA |
+| `engine` | The only writer for each command partition. Deterministic matching, snapshots, replay. | Replicas, up to the partition count |
+| `projector` | Folds the event stream into Postgres (orders, trades, depth). Idempotent. | Replicas, up to the partition count |
 
-| Tool | Version | Purpose |
-|------|---------|---------|
-| Java | 21 | Local development |
-| Maven | 3.9+ | Build |
-| Docker | 24+ | Compose + Testcontainers |
-| Docker Compose | v2 | Local stack |
-| minikube | 1.32+ | Local Kubernetes |
-| kubectl | 1.28+ | Kubernetes CLI |
-| Helm | 3.12+ | Chart deployment |
+One image runs every role (`LUMINA_ROLES=api|engine|projector`, default all three for local dev).
+Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for why it is built this way and
+[docs/OPERATIONS.md](docs/OPERATIONS.md) for running it.
 
-## Quick start — Docker Compose
+## Quick start
 
 ```bash
-cd lumina-exchange
-docker compose up --build
+docker compose up --build                       # Kafka, Postgres, api, engine, projector, UI
+docker compose --profile observability up -d    # + Prometheus, Grafana (admin/admin), Jaeger
 ```
 
-Wait until all services are healthy (~60 s). The stack runs **Kafka (KRaft)**, Redis, the Spring Boot API (`8080` / `9090`), and the **Next.js UI** (`3000`).
-
-| Service | URL |
-|---------|-----|
+| | |
+|--|--|
 | Trading UI | http://localhost:3000 |
-| REST API | http://localhost:8080 |
+| REST | http://localhost:8080 |
 | gRPC | localhost:9090 |
-| Prometheus | http://localhost:8080/actuator/prometheus |
+| Grafana / Jaeger | http://localhost:3001 / http://localhost:16686 |
 
-### Frontend only (local dev)
+Scale the engine and watch partitions move: `docker compose up -d --scale engine=2`.
 
-```bash
-cd frontend
-npm install
-NEXT_PUBLIC_API_URL=http://localhost:8080 npm run dev
-```
+## API
 
-## REST API examples
-
-All examples assume the stack is running via Docker Compose.
-
-### 1. Place a limit sell order
+Order entry needs `X-API-Key` (dev keys `dev-key-trader-1`, `dev-key-trader-2`); market data is public.
 
 ```bash
-curl -s -X POST http://localhost:8080/api/v1/orders \
-  -H "Content-Type: application/json" \
+# Rest a sell, then cross it. Idempotency-Key makes a retry return the original order.
+curl -s -X POST localhost:8080/api/v1/orders -H 'Content-Type: application/json' \
+  -H 'X-API-Key: dev-key-trader-1' -H 'Idempotency-Key: 7d1c' \
   -d '{"symbol":"BTC-USD","side":"SELL","type":"LIMIT","price":51000,"quantity":2}'
+
+curl -s -X POST localhost:8080/api/v1/orders -H 'Content-Type: application/json' \
+  -H 'X-API-Key: dev-key-trader-2' \
+  -d '{"symbol":"BTC-USD","side":"BUY","type":"LIMIT","price":51000,"quantity":0.5}'
 ```
 
-**Expected output (201 Created):**
+| Endpoint | Auth | |
+|----------|------|--|
+| `POST /api/v1/orders` | key | `201` placed (with immediate fills), `200` idempotent replay, `422` rejected or invalid, `429` rate limited, `504` engine did not answer (the command may still apply; look the order up) |
+| `GET /api/v1/orders/{id}` · `GET /api/v1/orders?symbol=` | key | Your orders (open ones for the list) |
+| `DELETE /api/v1/orders/{id}` | key | Cancel |
+| `GET /api/v1/orderbook/{symbol}?depth=` | public | Aggregated depth + sequence |
+| `GET /api/v1/trades/{symbol}?limit=` | public | Recent trades |
+| `GET /api/v1/stream/{symbol}` | public | SSE: `snapshot`, then `book` and `trade` events |
+| `GET /api/v1/instruments` | public | Tick size, lot size, quantity limits |
 
-```json
-{
-  "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-  "symbol": "BTC-USD",
-  "side": "SELL",
-  "type": "LIMIT",
-  "price": 51000,
-  "quantity": 2,
-  "status": "OPEN",
-  "createdAt": "2026-06-09T12:00:00Z"
-}
-```
+Order options: `type` LIMIT/MARKET, `timeInForce` GTC/IOC/FOK, `postOnly`. Self-trade prevention
+cancels the incoming remainder. Prices and quantities must be multiples of the instrument's tick
+and lot size ([application.yaml](src/main/resources/application.yaml)).
 
-### 2. Place a matching buy order (triggers trade)
+gRPC (`x-api-key` metadata) exposes `PlaceOrder`, `CancelOrder`, `GetOrderBook`:
+[order_service.proto](src/main/proto/order_service.proto).
+
+## Development
 
 ```bash
-curl -s -X POST http://localhost:8080/api/v1/orders \
-  -H "Content-Type: application/json" \
-  -d '{"symbol":"BTC-USD","side":"BUY","type":"LIMIT","price":51000,"quantity":2}'
+./mvnw verify                    # unit, property and Testcontainers tests (needs Docker); coverage gate on the engine
+scripts/bench.sh                 # JMH engine benchmark
+cd frontend && npm ci && npm run lint && npm run typecheck && npm test && npm run build
+helm lint charts/lumina-exchange
 ```
 
-**Expected output:**
+What the tests cover:
 
-```json
-{
-  "id": "...",
-  "symbol": "BTC-USD",
-  "side": "BUY",
-  "type": "LIMIT",
-  "price": 51000,
-  "quantity": 0,
-  "status": "FILLED",
-  "createdAt": "..."
-}
-```
+- **Engine vs oracle**: property tests (jqwik) run random command streams through the engine and a
+  deliberately naive reference book and require identical outcomes. They also assert the book is
+  never crossed, sequence numbers never gap, lots are conserved, and that restoring a snapshot
+  mid-stream changes nothing.
+- **End to end** on real Kafka and Postgres: matching, cancel, idempotency, auth, validation, SSE,
+  engine restart from snapshot, and engine rebuild from the full command log with the snapshot lost.
 
-### 3. Get order by ID
+Engine benchmark on a developer laptop (one thread, includes command generation, short run):
+about 2.2 million commands/s, p50 0.5 µs, p99 2.7 µs. This measures matching only. End-to-end order
+latency is dominated by two Kafka round trips; see the Grafana dashboard for the real number.
+
+## Deploying to Kubernetes
 
 ```bash
-curl -s http://localhost:8080/api/v1/orders/{order-id}
+helm upgrade --install lumina charts/lumina-exchange -n lumina --create-namespace \
+  --set kafka.bootstrapServers=... --set postgres.url=... --set postgres.existingSecret=... \
+  --set security.existingSecret=...
 ```
 
-**Expected output:** Same shape as place-order response with current status/quantity.
+The chart ships an `api` Deployment with HPA and PDB, an `engine` StatefulSet (fixed replicas,
+static consumer-group membership, long termination grace for the final snapshot), a `projector`
+Deployment, optional ServiceMonitor, PrometheusRule, NetworkPolicy and Ingress.
+`deploy/k8s-dev/` has throwaway Kafka and Postgres plus values for kind/minikube.
 
-### 4. Cancel an open order
+## What this is not (yet)
 
-```bash
-curl -s -X DELETE http://localhost:8080/api/v1/orders/{order-id}
-```
-
-**Expected output:**
-
-```json
-{
-  "id": "...",
-  "symbol": "BTC-USD",
-  "side": "BUY",
-  "type": "LIMIT",
-  "price": 50000,
-  "quantity": 1,
-  "status": "CANCELLED",
-  "createdAt": "..."
-}
-```
-
-### 5. Get order book (top 10 levels)
-
-```bash
-curl -s http://localhost:8080/api/v1/orderbook/BTC-USD
-```
-
-**Expected output:**
-
-```json
-{
-  "symbol": "BTC-USD",
-  "bids": [
-    {"price": 50000, "quantity": 3}
-  ],
-  "asks": [
-    {"price": 51000, "quantity": 1}
-  ]
-}
-```
-
-### 6. Get recent trades from Redis
-
-```bash
-curl -s "http://localhost:8080/api/v1/trades/BTC-USD?limit=50"
-```
-
-**Expected output (after a match):**
-
-```json
-[
-  {
-    "id": "...",
-    "buyOrderId": "...",
-    "sellOrderId": "...",
-    "symbol": "BTC-USD",
-    "price": 51000,
-    "quantity": 2,
-    "executedAt": "2026-06-09T12:00:01Z"
-  }
-]
-```
-
-**Expected output (no trades yet):** `[]`
-
-**Expected output (Redis down, circuit breaker open):** `[]` (fallback)
-
-## Prometheus metrics
-
-```bash
-curl -s http://localhost:8080/actuator/prometheus | grep -E "orders_|trades_|matching_|orderbook_|resilience4j"
-```
-
-**Expected sample lines:**
-
-```
-orders_placed_total{application="lumina-exchange",side="BUY",symbol="BTC-USD"} 1.0
-orders_cancelled_total{application="lumina-exchange",symbol="BTC-USD"} 0.0
-trades_executed_total{application="lumina-exchange",symbol="BTC-USD"} 1.0
-matching_latency_ms_seconds_count{application="lumina-exchange",symbol="BTC-USD"} 1.0
-orderbook_depth{application="lumina-exchange",symbol="BTC-USD"} 0.0
-resilience4j_circuitbreaker_state{name="redis-ledger"} 0.0
-```
-
-## gRPC (port 9090)
-
-Install [grpcurl](https://github.com/fullstorydev/grpcurl):
-
-```bash
-grpcurl -plaintext -d '{"symbol":"BTC-USD","side":"BUY","type":"LIMIT","price":"50000","quantity":"1"}' \
-  localhost:9090 lumina.orderbook.OrderService/PlaceOrder
-```
-
-**Expected output:**
-
-```json
-{
-  "id": "...",
-  "symbol": "BTC-USD",
-  "side": "BUY",
-  "type": "LIMIT",
-  "price": "50000",
-  "quantity": "1",
-  "status": "OPEN",
-  "createdAt": "..."
-}
-```
-
-```bash
-grpcurl -plaintext -d '{"symbol":"BTC-USD"}' \
-  localhost:9090 lumina.orderbook.OrderService/GetOrderBook
-```
-
-## Run tests
-
-```bash
-mvn verify
-```
-
-- **Unit tests** — matching engine, services, controllers (always run)
-- **Integration tests** — Kafka + Redis via Testcontainers (require Docker; skipped if unavailable)
-
-## Kubernetes (minikube)
-
-### 1. Start minikube and build the image
-
-```bash
-minikube start --cpus=4 --memory=8192
-eval $(minikube docker-env)          # Linux/macOS
-# minikube docker-env | Invoke-Expression   # PowerShell
-docker build -t lumina-exchange:0.3.0 .
-```
-
-### 2. Deploy Kafka and Redis (in-cluster)
-
-```bash
-kubectl create namespace lumina
-kubectl apply -f k8s/infra/ -n lumina
-kubectl wait --for=condition=ready pod -l app=kafka -n lumina --timeout=120s
-```
-
-### 3. Install via Helm
-
-```bash
-helm upgrade --install lumina charts/lumina-exchange \
-  -n lumina \
-  --set image.repository=lumina-exchange \
-  --set image.tag=0.3.0 \
-  --set image.pullPolicy=Never \
-  --set config.kafkaBootstrapServers=kafka:9092 \
-  --set config.redisHost=redis
-```
-
-### 4. Access the API
-
-```bash
-minikube service lumina-lumina-exchange-api -n lumina --url
-# curl the returned URL, e.g. http://192.168.49.2:31234/api/v1/orderbook/BTC-USD
-```
-
-For LoadBalancer on minikube, run `minikube tunnel` in a separate terminal.
-
-### 5. Verify HPA and metrics
-
-```bash
-kubectl get hpa -n lumina
-kubectl get servicemonitor -n lumina          # requires Prometheus Operator
-kubectl port-forward svc/lumina-lumina-exchange-internal 8080:8080 -n lumina
-curl -s localhost:8080/actuator/prometheus | head
-```
-
-## Project structure
-
-```
-src/main/java/com/lumina/orderbook/
-  api/           REST controllers
-  config/        Kafka, Resilience4j metrics
-  engine/        Matching engine
-  event/         Kafka event DTOs
-  grpc/          gRPC service
-  kafka/         Producer + consumer
-  metrics/       Micrometer counters, timers, gauges
-  redis/         Trade ledger repository
-  service/       Business logic
-charts/lumina-exchange/   Helm chart
-k8s/infra/                Kafka + Redis manifests for minikube
-docker-compose.yml        Local full stack
-```
-
-## Phases completed
-
-| Phase | Features |
-|-------|----------|
-| 1 | In-memory order book, REST API, matching engine tests |
-| 2 | Kafka events, Redis trade ledger, gRPC, Docker Compose |
-| 3 | Prometheus metrics, Resilience4j circuit breaker, Helm/K8s |
-| 4 | Next.js TypeScript trading console (full-stack demo) |
+It is a matching engine and its surrounding platform, not a complete exchange: there are no
+accounts, balances, margin or risk checks, no settlement, and authentication is static API keys.
+See "Known limits" in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).

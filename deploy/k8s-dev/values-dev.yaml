@@ -1,0 +1,39 @@
+# helm upgrade --install lumina charts/lumina-exchange -n lumina -f deploy/k8s-dev/values-dev.yaml
+image:
+  repository: lumina-exchange
+  tag: dev
+  pullPolicy: Never   # image loaded into the cluster (kind load docker-image / minikube image load)
+
+kafka:
+  bootstrapServers: kafka:9092
+  partitions: 6
+  replicationFactor: 1
+  minInsyncReplicas: 1
+
+tracing:
+  samplingProbability: 0
+
+api:
+  replicas: 2
+  autoscaling:
+    enabled: false
+  resources:
+    requests: { cpu: 100m, memory: 384Mi }
+    limits: { memory: 640Mi }
+
+engine:
+  replicas: 2
+  resources:
+    requests: { cpu: 100m, memory: 384Mi }
+    limits: { memory: 640Mi }
+
+projector:
+  replicas: 1
+  resources:
+    requests: { cpu: 100m, memory: 384Mi }
+    limits: { memory: 640Mi }
+
+security:
+  apiKeys:
+    - { key: dev-key-trader-1, account: trader-1 }
+    - { key: dev-key-trader-2, account: trader-2 }

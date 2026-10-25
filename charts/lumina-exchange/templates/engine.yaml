@@ -1,0 +1,79 @@
+{{- if gt (int .Values.engine.replicas) (int .Values.kafka.partitions) }}
+{{- fail "engine.replicas cannot exceed kafka.partitions: extra replicas would own no partition" }}
+{{- end }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "lumina.fullname" . }}-engine
+  labels:
+    {{- include "lumina.labels" . | nindent 4 }}
+    app.kubernetes.io/component: engine
+spec:
+  replicas: {{ .Values.engine.replicas }}
+  serviceName: {{ include "lumina.fullname" . }}-engine
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      {{- include "lumina.selector" (dict "ctx" . "role" "engine") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "lumina.selector" (dict "ctx" . "role" "engine") | nindent 8 }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      # Gives the runner time to flush output and write a final snapshot, so a planned restart
+      # replays almost nothing.
+      terminationGracePeriodSeconds: {{ .Values.engine.terminationGracePeriodSeconds }}
+      containers:
+        {{- include "lumina.container" (dict "ctx" . "role" "engine" "resources" .Values.engine.resources) | nindent 8 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    {{- include "lumina.selector" (dict "ctx" . "role" "engine") | nindent 20 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+# Headless: the engine takes no inbound traffic, but the StatefulSet needs a governing service.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "lumina.fullname" . }}-engine
+  labels:
+    {{- include "lumina.labels" . | nindent 4 }}
+    app.kubernetes.io/component: engine
+spec:
+  clusterIP: None
+  selector:
+    {{- include "lumina.selector" (dict "ctx" . "role" "engine") | nindent 4 }}
+  ports:
+    - name: management
+      port: 8081
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "lumina.fullname" . }}-engine
+  labels:
+    {{- include "lumina.labels" . | nindent 4 }}
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      {{- include "lumina.selector" (dict "ctx" . "role" "engine") | nindent 6 }}

@@ -1,0 +1,64 @@
+{{- if .Values.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "lumina.fullname" . }}
+  labels:
+    {{- include "lumina.labels" . | nindent 4 }}
+    {{- with .Values.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: metrics
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  endpoints:
+    - port: management
+      path: /actuator/prometheus
+      interval: {{ .Values.serviceMonitor.interval }}
+{{- end }}
+{{- if .Values.prometheusRule.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "lumina.fullname" . }}
+  labels:
+    {{- include "lumina.labels" . | nindent 4 }}
+    {{- with .Values.prometheusRule.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  {{- .Files.Get "files/alerts.yml" | nindent 2 }}
+{{- end }}
+{{- if .Values.networkPolicy.enabled }}
+---
+# The management port exposes metrics and health; only the monitoring namespace may reach it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "lumina.fullname" . }}-management
+  labels:
+    {{- include "lumina.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "lumina.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              {{- toYaml .Values.networkPolicy.monitoringNamespaceLabels | nindent 14 }}
+      ports:
+        - port: 8081
+    - from:
+        - podSelector: {}
+      ports:
+        - port: 8081
+    - ports:
+        - port: 8080
+        - port: 9090
+{{- end }}

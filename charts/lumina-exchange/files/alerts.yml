@@ -1,0 +1,66 @@
+groups:
+  - name: lumina.slo
+    rules:
+      - alert: LuminaOrderLatencyHigh
+        # SLO: 99% of orders acknowledged within 250 ms (command log round trip included).
+        expr: |
+          histogram_quantile(0.99,
+            sum by (le) (rate(lumina_gateway_order_seconds_bucket{op="place"}[5m]))) > 0.25
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: p99 order latency above the 250 ms SLO
+          description: Check engine batch time, Kafka produce latency and consumer lag on exchange.commands.
+
+      - alert: LuminaOrderErrorRateHigh
+        expr: |
+          sum(rate(lumina_gateway_order_seconds_count{outcome="error"}[5m]))
+            / sum(rate(lumina_gateway_order_seconds_count[5m])) > 0.01
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: More than 1% of order requests are failing (timeouts or unavailable command log)
+
+  - name: lumina.engine
+    rules:
+      - alert: LuminaNoEngineOwnsPartitions
+        expr: sum(lumina_engine_partitions) == 0 or absent(lumina_engine_partitions)
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: No engine replica owns a command partition; orders will time out
+
+      - alert: LuminaEngineRecovered
+        expr: increase(lumina_engine_recoveries_total[10m]) > 0
+        labels: { severity: warning }
+        annotations:
+          summary: An engine rebuilt state from its snapshot after a failed batch (Kafka produce failure?)
+
+      - alert: LuminaPoisonCommand
+        expr: increase(lumina_engine_poison_total[10m]) > 0
+        labels: { severity: warning }
+        annotations:
+          summary: The engine skipped an undecodable command; inspect exchange.commands
+
+      - alert: LuminaCommandBacklog
+        expr: max(kafka_consumer_fetch_manager_records_lag_max{topic="exchange.commands"}) > 5000
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: Engine is falling behind the command log
+
+  - name: lumina.read-model
+    rules:
+      - alert: LuminaProjectorLagging
+        expr: max(kafka_consumer_fetch_manager_records_lag_max{topic="exchange.events"}) > 20000
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: The Postgres read model is far behind the event stream
+
+      - alert: LuminaProjectionSequenceGap
+        expr: increase(lumina_projector_gaps_total[10m]) > 0
+        labels: { severity: critical }
+        annotations:
+          summary: The projector saw a missing event sequence; the read model may be inconsistent
+          description: Rebuild by truncating the projection tables and resetting the projector group to earliest.

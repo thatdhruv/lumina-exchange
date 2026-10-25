@@ -1,0 +1,585 @@
+{
+  "uid": "lumina",
+  "title": "Lumina Exchange",
+  "tags": [
+    "lumina"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5s",
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Orders / s",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(lumina_gateway_order_seconds_count{op=\"place\"}[1m]))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "legendFormat": ""
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Trades / s",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 4,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(lumina_engine_trades_total[1m]))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "legendFormat": ""
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Partitions owned",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(lumina_engine_partitions)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "legendFormat": ""
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "SSE subscribers",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(lumina_gateway_stream_subscribers)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "legendFormat": ""
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Engine recoveries (1h)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(lumina_engine_recoveries_total[1h]))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "legendFormat": ""
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Projection gaps (1h)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 20,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(lumina_projector_gaps_total[1h]))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "legendFormat": ""
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Order latency (place) - SLO p99 250 ms",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 12,
+        "h": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(lumina_gateway_order_seconds_bucket{op=\"place\"}[1m])))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "legendFormat": "p50"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(lumina_gateway_order_seconds_bucket{op=\"place\"}[1m])))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "legendFormat": "p95"
+        },
+        {
+          "refId": "C",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(lumina_gateway_order_seconds_bucket{op=\"place\"}[1m])))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "legendFormat": "p99"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "thresholdsStyle": {
+              "mode": "line"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.25
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Orders / s by outcome",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 4,
+        "w": 12,
+        "h": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (op, outcome) (rate(lumina_gateway_order_seconds_count[1m]))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "legendFormat": "{{op}} {{outcome}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Engine commands / s",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 13,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (type) (rate(lumina_engine_commands_total[1m]))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "legendFormat": "{{type}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Engine batch time (p99)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 13,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(lumina_engine_batch_seconds_bucket[1m])))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "legendFormat": "p99"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Consumer lag (max per topic; 0 when idle)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 13,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (topic) (kafka_consumer_fetch_manager_records_lag_max{topic=~\"exchange[.].+\"}) or vector(0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "legendFormat": "{{topic}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Projector events / s",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 21,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (result) (rate(lumina_projector_events_total[1m]))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "legendFormat": "{{result}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Snapshot time (max)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 21,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(lumina_engine_snapshot_seconds_max)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "legendFormat": ""
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "JVM heap used by role",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 21,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (role) (jvm_memory_used_bytes{area=\"heap\"})",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "legendFormat": "{{role}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    }
+  ],
+  "templating": {
+    "list": []
+  },
+  "annotations": {
+    "list": []
+  }
+}

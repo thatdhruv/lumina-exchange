@@ -1,0 +1,102 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend (build, unit + integration tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+      # Testcontainers needs Docker, which ubuntu-latest provides.
+      - name: Verify
+        run: ./mvnw -B verify
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: surefire-reports
+          path: target/surefire-reports
+
+  benchmark-smoke:
+    name: Benchmark compiles and runs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+      # One short iteration: catches a broken harness, not performance regressions.
+      - run: ./mvnw -B -q -Pbench -DskipTests clean compile dependency:build-classpath -Dmdep.outputFile=target/bench-classpath.txt
+      - run: java -cp "target/classes:$(cat target/bench-classpath.txt)" org.openjdk.jmh.Main -wi 1 -w 1 -i 1 -r 1 -f 1 -bm thrpt
+
+  frontend:
+    name: Frontend (lint, typecheck, test, build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  chart:
+    name: Helm chart
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v4
+      - run: helm lint charts/lumina-exchange
+      - name: Render every optional template
+        run: >
+          helm template t charts/lumina-exchange
+          --set serviceMonitor.enabled=true --set prometheusRule.enabled=true
+          --set networkPolicy.enabled=true --set api.ingress.enabled=true > /dev/null
+      - name: Replica guard rejects more engines than partitions
+        run: "! helm template t charts/lumina-exchange --set engine.replicas=9"
+
+  images:
+    name: Docker images build
+    runs-on: ubuntu-latest
+    needs: [backend, frontend]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - uses: docker/build-push-action@v6
+        with:
+          context: frontend
+          push: false
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend

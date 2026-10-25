@@ -1,0 +1,96 @@
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  repository: lumina-exchange
+  tag: "0.4.0"
+  pullPolicy: IfNotPresent
+
+# Shared by every role.
+kafka:
+  bootstrapServers: kafka:9092
+  # Fixed for the life of the cluster. The engine scales out to at most this many replicas.
+  partitions: 6
+  replicationFactor: 3
+  minInsyncReplicas: 2
+
+postgres:
+  url: jdbc:postgresql://postgres:5432/lumina
+  # Secret with keys "username" and "password". When empty, one is created from the values below
+  # (fine for local clusters, not for production).
+  existingSecret: ""
+  username: lumina
+  password: lumina
+
+security:
+  # Secret with keys LUMINA_SECURITY_APIKEYS_<n>_KEY / LUMINA_SECURITY_APIKEYS_<n>_ACCOUNT.
+  # When empty, one is created from apiKeys below.
+  existingSecret: ""
+  apiKeys:
+    - key: dev-key-trader-1
+      account: trader-1
+
+tracing:
+  samplingProbability: 0.1
+  # OTLP/HTTP traces endpoint, e.g. http://otel-collector:4318/v1/traces. Empty disables export.
+  otlpEndpoint: ""
+
+extraEnv: []
+
+# --- api: REST, SSE and gRPC gateway. Stateless; scale freely. ---------------------------------
+api:
+  replicas: 2
+  resources:
+    requests: { cpu: 250m, memory: 512Mi }
+    limits: { memory: 768Mi }
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 60
+  service:
+    type: ClusterIP
+    httpPort: 8080
+    grpcPort: 9090
+  ingress:
+    enabled: false
+    className: ""
+    host: exchange.example.com
+    annotations: {}
+    tls: []
+
+# --- engine: single writer per command-topic partition. Fixed replica count, no HPA. -----------
+engine:
+  replicas: 2
+  resources:
+    requests: { cpu: "1", memory: 1Gi }
+    limits: { memory: 1Gi }
+  # Time to finish the final snapshot on shutdown.
+  terminationGracePeriodSeconds: 60
+
+# --- projector: builds the Postgres read model. Scale up to the partition count. ---------------
+projector:
+  replicas: 2
+  resources:
+    requests: { cpu: 250m, memory: 512Mi }
+    limits: { memory: 768Mi }
+
+serviceMonitor:
+  enabled: false
+  interval: 15s
+  labels: {}
+
+prometheusRule:
+  enabled: false
+  labels: {}
+
+networkPolicy:
+  enabled: false
+  # Namespaces allowed to scrape the management port (8081).
+  monitoringNamespaceLabels:
+    kubernetes.io/metadata.name: monitoring
+
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
