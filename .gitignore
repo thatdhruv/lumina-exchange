@@ -6,3 +6,6 @@ target/
 .settings/
 .vscode/
 DEMO_SCRIPT.md
+.env
+node_modules/
+.next/

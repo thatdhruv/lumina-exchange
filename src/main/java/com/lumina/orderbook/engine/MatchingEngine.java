@@ -1,52 +1,47 @@
 package com.lumina.orderbook.engine;
 
-import com.lumina.orderbook.domain.Order;
-import com.lumina.orderbook.domain.Trade;
-import org.springframework.stereotype.Component;
-
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
-import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
+import java.util.Map;
 
-@Component
-public class MatchingEngine {
+/**
+ * All order books owned by one command-topic partition. Not thread-safe: exactly one thread (the
+ * partition consumer) calls {@link #process}.
+ */
+public final class MatchingEngine {
 
-    private static final int DEFAULT_DEPTH = 10;
+    public static final int DEFAULT_RECENT_ID_CAPACITY = 50_000;
 
-    private final ConcurrentMap<String, SymbolOrderBook> books = new ConcurrentHashMap<>();
+    private final int recentIdCapacity;
+    private final Map<String, OrderBook> books = new HashMap<>();
 
-    public MatchResult placeOrder(Order order) {
-        SymbolOrderBook book = books.computeIfAbsent(order.getSymbol(), symbol -> new SymbolOrderBook());
-        List<Trade> trades = new ArrayList<>(book.placeOrder(order));
-        return new MatchResult(order, trades);
+    public MatchingEngine() {
+        this(DEFAULT_RECENT_ID_CAPACITY);
     }
 
-    public boolean cancelOrder(String symbol, UUID orderId) {
-        SymbolOrderBook book = books.get(symbol);
-        if (book == null) {
-            return false;
+    public MatchingEngine(int recentIdCapacity) {
+        this.recentIdCapacity = recentIdCapacity;
+    }
+
+    public List<EngineEvent> process(EngineCommand command) {
+        List<EngineEvent> events = new ArrayList<>(4);
+        books.computeIfAbsent(command.symbol(), s -> new OrderBook(s, recentIdCapacity)).process(command, events);
+        return events;
+    }
+
+    public OrderBook book(String symbol) {
+        return books.get(symbol);
+    }
+
+    public List<BookState> snapshot() {
+        return books.values().stream().map(OrderBook::state).toList();
+    }
+
+    public void restore(List<BookState> states) {
+        books.clear();
+        for (BookState state : states) {
+            books.put(state.symbol(), OrderBook.restore(state, recentIdCapacity));
         }
-        return book.cancelOrder(orderId);
-    }
-
-    public OrderBookSnapshot getOrderBook(String symbol) {
-        SymbolOrderBook book = books.get(symbol);
-        if (book == null) {
-            return new OrderBookSnapshot(List.of(), List.of());
-        }
-        return book.snapshot(DEFAULT_DEPTH);
-    }
-
-    public int getOpenOrderCount(String symbol) {
-        SymbolOrderBook book = books.get(symbol);
-        if (book == null) {
-            return 0;
-        }
-        return book.countOpenOrders();
-    }
-
-    public record MatchResult(Order order, List<Trade> trades) {
     }
 }

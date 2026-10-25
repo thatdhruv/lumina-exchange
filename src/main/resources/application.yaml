@@ -1,0 +1,99 @@
+spring:
+  application:
+    name: lumina-exchange
+  threads:
+    virtual:
+      enabled: true
+  datasource:
+    url: jdbc:postgresql://localhost:5432/lumina
+    username: lumina
+    password: lumina
+  kafka:
+    bootstrap-servers: localhost:9092
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.ByteArraySerializer
+      acks: all
+      compression-type: lz4
+      properties:
+        enable.idempotence: true
+        linger.ms: 2
+    consumer:
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.ByteArrayDeserializer
+      enable-auto-commit: false
+      auto-offset-reset: earliest
+      max-poll-records: 500
+  grpc:
+    server:
+      port: 9090
+
+server:
+  port: 8080
+  shutdown: graceful
+
+management:
+  server:
+    port: 8081
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      group:
+        readiness:
+          include: readinessState,db,eventStream
+  metrics:
+    tags:
+      application: lumina-exchange
+    distribution:
+      percentiles-histogram:
+        lumina.gateway.order: true
+        lumina.engine.batch: true
+      slo:
+        lumina.gateway.order: 10ms,25ms,50ms,100ms,250ms,500ms,1s
+  tracing:
+    sampling:
+      probability: ${LUMINA_TRACING_SAMPLING:0.1}
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          endpoint: ${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:http://localhost:4318/v1/traces}
+    resource-attributes:
+      service.name: lumina-exchange
+
+lumina:
+  # api = REST/gRPC/SSE gateway, engine = matching, projector = Postgres read model.
+  roles: api,engine,projector
+  kafka:
+    commands-topic: exchange.commands
+    events-topic: exchange.events
+    partitions: 6
+  security:
+    api-keys:
+      - key: dev-key-trader-1
+        account: trader-1
+      - key: dev-key-trader-2
+        account: trader-2
+  cors:
+    allowed-origins: http://localhost:3000,http://127.0.0.1:3000
+  instruments:
+    - symbol: BTC-USD
+      tick-size: "0.01"
+      lot-size: "0.0001"
+      min-quantity: "0.0001"
+      max-quantity: "100"
+    - symbol: ETH-USD
+      tick-size: "0.01"
+      lot-size: "0.001"
+      min-quantity: "0.001"
+      max-quantity: "1000"
+    - symbol: SOL-USD
+      tick-size: "0.001"
+      lot-size: "0.01"
+      min-quantity: "0.01"
+      max-quantity: "100000"

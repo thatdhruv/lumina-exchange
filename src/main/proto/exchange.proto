@@ -1,0 +1,169 @@
+// Internal wire contract: commands in, events out, engine snapshots.
+//
+// Compatibility rules (enforced by review, see docs/ARCHITECTURE.md):
+//   * never reuse or renumber a field; reserve removed ones
+//   * only add optional fields or new oneof cases
+//   * the engine must stay deterministic: the same command stream always yields the same events
+syntax = "proto3";
+
+package lumina.exchange.v1;
+
+option java_multiple_files = true;
+option java_package = "com.lumina.orderbook.wire";
+option java_outer_classname = "ExchangeWire";
+
+enum Side {
+  SIDE_UNSPECIFIED = 0;
+  SIDE_BUY = 1;
+  SIDE_SELL = 2;
+}
+
+enum OrderType {
+  ORDER_TYPE_UNSPECIFIED = 0;
+  ORDER_TYPE_LIMIT = 1;
+  ORDER_TYPE_MARKET = 2;
+}
+
+enum TimeInForce {
+  TIME_IN_FORCE_UNSPECIFIED = 0;
+  TIME_IN_FORCE_GTC = 1;
+  TIME_IN_FORCE_IOC = 2;
+  TIME_IN_FORCE_FOK = 3;
+}
+
+enum RejectReason {
+  REJECT_REASON_UNSPECIFIED = 0;
+  REJECT_REASON_DUPLICATE_ORDER_ID = 1;
+  REJECT_REASON_INVALID_ORDER = 2;
+  REJECT_REASON_POST_ONLY_WOULD_CROSS = 3;
+  REJECT_REASON_FOK_UNFILLABLE = 4;
+  REJECT_REASON_UNKNOWN_ORDER = 5;
+  REJECT_REASON_NOT_ORDER_OWNER = 6;
+}
+
+enum CancelReason {
+  CANCEL_REASON_UNSPECIFIED = 0;
+  CANCEL_REASON_USER = 1;
+  CANCEL_REASON_UNFILLED_REMAINDER = 2; // market / IOC remainder
+  CANCEL_REASON_SELF_TRADE_PREVENTED = 3;
+}
+
+// ---- commands (topic exchange.commands, key = symbol) ----
+
+message Command {
+  string command_id = 1;
+  int64 timestamp_ms = 2; // assigned by the gateway; the engine never reads a clock
+  oneof body {
+    PlaceOrder place = 10;
+    CancelOrder cancel = 11;
+  }
+}
+
+message PlaceOrder {
+  string order_id = 1;
+  string account_id = 2;
+  string symbol = 3;
+  Side side = 4;
+  OrderType type = 5;
+  TimeInForce time_in_force = 6;
+  bool post_only = 7;
+  int64 price_ticks = 8;
+  int64 quantity_lots = 9;
+}
+
+message CancelOrder {
+  string order_id = 1;
+  string account_id = 2;
+  string symbol = 3;
+}
+
+// ---- events (topic exchange.events, key = symbol) ----
+
+message EventBatch {
+  string command_id = 1;
+  string symbol = 2;
+  repeated Event events = 3;
+}
+
+message Event {
+  int64 seq = 1; // strictly increasing per symbol, gap-free
+  int64 timestamp_ms = 2;
+  oneof body {
+    OrderAccepted accepted = 10;
+    OrderRejected rejected = 11;
+    TradeExecuted trade = 12;
+    OrderCancelled cancelled = 13;
+    BookUpdate book = 14;
+  }
+}
+
+message OrderAccepted {
+  string order_id = 1;
+  string account_id = 2;
+  Side side = 3;
+  OrderType type = 4;
+  TimeInForce time_in_force = 5;
+  bool post_only = 6;
+  int64 price_ticks = 7;
+  int64 quantity_lots = 8;
+}
+
+message OrderRejected {
+  string order_id = 1;
+  RejectReason reason = 2;
+  string account_id = 3;
+}
+
+message TradeExecuted {
+  string trade_id = 1; // deterministic: UUIDv3("symbol:seq")
+  string taker_order_id = 2;
+  string maker_order_id = 3;
+  string buy_order_id = 4;
+  string sell_order_id = 5;
+  Side taker_side = 6;
+  int64 price_ticks = 7;
+  int64 quantity_lots = 8;
+}
+
+message OrderCancelled {
+  string order_id = 1;
+  int64 remaining_lots = 2;
+  CancelReason reason = 3;
+}
+
+// Absolute resting quantity per changed level; 0 removes the level.
+message BookUpdate {
+  repeated LevelChange levels = 1;
+}
+
+message LevelChange {
+  Side side = 1;
+  int64 price_ticks = 2;
+  int64 total_lots = 3;
+}
+
+// ---- snapshots (table engine_snapshots, one row per command-topic partition) ----
+
+message EngineSnapshot {
+  int32 partition = 1;
+  int64 kafka_offset = 2; // last command offset reflected in this state
+  int64 taken_at_ms = 3;
+  repeated BookSnapshot books = 4;
+}
+
+message BookSnapshot {
+  string symbol = 1;
+  int64 last_seq = 2;
+  int64 next_arrival = 3;
+  repeated RestingOrder orders = 4; // any order; restored by arrival
+  repeated string recent_order_ids = 5; // oldest first, for duplicate detection
+}
+
+message RestingOrder {
+  string order_id = 1;
+  string account_id = 2;
+  Side side = 3;
+  int64 price_ticks = 4;
+  int64 remaining_lots = 5;
+  int64 arrival = 6;
+}
