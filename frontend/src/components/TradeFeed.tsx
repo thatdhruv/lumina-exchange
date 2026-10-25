@@ -1,53 +1,17 @@
-"use client";
-
-import { api, formatPrice, formatQty, formatTime } from "@/lib/api";
+import { formatPrice, formatQty, formatTime } from "@/lib/api";
 import type { Trade } from "@/lib/types";
-import { useEffect, useState } from "react";
 import { Panel } from "./Panel";
 
 interface TradeFeedProps {
-  symbol: string;
-  refreshKey: number;
+  trades: Trade[];
+  priceDigits: number;
 }
 
-export function TradeFeed({ symbol, refreshKey }: TradeFeedProps) {
-  const [trades, setTrades] = useState<Trade[]>([]);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function load() {
-      try {
-        const data = await api.getTrades(symbol);
-        if (!cancelled) {
-          setTrades(data);
-          setError(null);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Failed to load trades");
-        }
-      }
-    }
-
-    load();
-    const timer = setInterval(load, 2000);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, [symbol, refreshKey]);
-
+export function TradeFeed({ trades, priceDigits }: TradeFeedProps) {
   return (
-    <Panel
-      title="Recent Trades"
-      subtitle="Kafka → trades.executed → Redis ledger"
-      className="min-h-[320px]"
-    >
-      {error && <p className="mb-2 text-xs text-ask">{error}</p>}
+    <Panel title="Recent Trades" subtitle="Streamed as the engine matches" className="min-h-[320px]">
       {trades.length === 0 ? (
-        <p className="text-sm text-gray-500">No trades yet — place matching orders to see the pipeline.</p>
+        <p className="text-sm text-gray-500">No trades yet. Place crossing orders to see them here.</p>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-left font-mono text-xs">
@@ -62,7 +26,9 @@ export function TradeFeed({ symbol, refreshKey }: TradeFeedProps) {
               {trades.map((trade) => (
                 <tr key={trade.id} className="border-t border-surface-border/60">
                   <td className="py-2 pr-3 text-gray-400">{formatTime(trade.executedAt)}</td>
-                  <td className="py-2 pr-3 text-accent">{formatPrice(trade.price)}</td>
+                  <td className={`py-2 pr-3 ${trade.takerSide === "BUY" ? "text-bid" : "text-ask"}`}>
+                    {formatPrice(trade.price, priceDigits)}
+                  </td>
                   <td className="py-2">{formatQty(trade.quantity)}</td>
                 </tr>
               ))}

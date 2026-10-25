@@ -1,56 +1,73 @@
 "use client";
 
-import { api } from "@/lib/api";
-import type { Order } from "@/lib/types";
-import { useCallback, useState } from "react";
 import { Footer } from "@/components/Footer";
 import { Header } from "@/components/Header";
-import { OpenOrdersPanel, OrderForm } from "@/components/OrderForm";
+import { OpenOrdersPanel } from "@/components/OpenOrdersPanel";
 import { OrderBookPanel } from "@/components/OrderBookPanel";
+import { OrderForm } from "@/components/OrderForm";
 import { TradeFeed } from "@/components/TradeFeed";
+import { useMarketStream } from "@/hooks/useMarketStream";
+import { api, decimalsOf } from "@/lib/api";
+import type { Instrument, Order } from "@/lib/types";
+import { useCallback, useEffect, useState } from "react";
 
 export default function TradingDashboard() {
+  const [instruments, setInstruments] = useState<Instrument[]>([]);
   const [symbol, setSymbol] = useState("BTC-USD");
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [refreshKey, setRefreshKey] = useState(0);
+  const [openOrders, setOpenOrders] = useState<Order[]>([]);
+  const { book, trades, connected, tradeCount } = useMarketStream(symbol);
 
-  const bump = useCallback(() => setRefreshKey((k) => k + 1), []);
+  const refreshOrders = useCallback(async () => {
+    try {
+      setOpenOrders(await api.openOrders(symbol));
+    } catch {
+      // the next trade or placement retries
+    }
+  }, [symbol]);
 
-  function handleOrderPlaced(order: Order) {
-    setOrders((prev) => [order, ...prev]);
-    bump();
-  }
+  useEffect(() => {
+    api.instruments().then(setInstruments).catch(() => undefined);
+  }, []);
+
+  // Fills change which orders are still open; the read model catches up within a few ms.
+  useEffect(() => {
+    const timer = setTimeout(refreshOrders, 300);
+    return () => clearTimeout(timer);
+  }, [refreshOrders, tradeCount]);
 
   async function handleCancel(id: string) {
     try {
-      const cancelled = await api.cancelOrder(id);
-      setOrders((prev) => prev.map((o) => (o.id === id ? cancelled : o)));
-      bump();
+      await api.cancelOrder(id);
     } catch (err) {
       console.error(err);
     }
+    refreshOrders();
   }
+
+  const instrument = instruments.find((i) => i.symbol === symbol);
+  const priceDigits = instrument ? decimalsOf(instrument.tickSize) : 2;
 
   return (
     <div className="mx-auto min-h-screen max-w-7xl px-4 py-8 md:px-6">
-      <Header />
+      <Header connected={connected} />
 
       <div className="grid gap-4 lg:grid-cols-12">
-        <div className="lg:col-span-4 space-y-4">
+        <div className="space-y-4 lg:col-span-4">
           <OrderForm
+            instruments={instruments}
             symbol={symbol}
             onSymbolChange={setSymbol}
-            onOrderPlaced={handleOrderPlaced}
+            onOrderPlaced={() => setTimeout(refreshOrders, 300)}
           />
-          <OpenOrdersPanel orders={orders} onCancel={handleCancel} />
+          <OpenOrdersPanel orders={openOrders} priceDigits={priceDigits} onCancel={handleCancel} />
         </div>
 
         <div className="lg:col-span-5">
-          <OrderBookPanel symbol={symbol} refreshKey={refreshKey} />
+          <OrderBookPanel book={book} priceDigits={priceDigits} />
         </div>
 
         <div className="lg:col-span-3">
-          <TradeFeed symbol={symbol} refreshKey={refreshKey} />
+          <TradeFeed trades={trades} priceDigits={priceDigits} />
         </div>
       </div>
 

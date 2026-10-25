@@ -25,7 +25,7 @@ import java.util.concurrent.TimeUnit;
  * Engine throughput and latency on a realistic mix: mostly passive limit orders around a moving
  * mid, a quarter marketable, and a third of the resting flow cancelled again.
  *
- * <pre>mvn -Pbench -DskipTests package &amp;&amp; java -jar target/benchmarks.jar</pre>
+ * <pre>scripts/bench.sh [jmh args]</pre>
  */
 @BenchmarkMode({Mode.Throughput, Mode.SampleTime})
 @OutputTimeUnit(TimeUnit.MICROSECONDS)

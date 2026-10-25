@@ -1,6 +1,37 @@
+# Local stack that mirrors production topology: the same image runs as three roles.
+#
+#   docker compose up --build                       # trading stack
+#   docker compose --profile observability up -d    # + Prometheus, Grafana, Jaeger
+#
+# UI http://localhost:3000 | REST http://localhost:8080 | gRPC localhost:9090
+# Grafana http://localhost:3001 (admin/admin) | Jaeger http://localhost:16686
+
+x-app: &app
+  build: .
+  depends_on:
+    kafka:
+      condition: service_healthy
+    postgres:
+      condition: service_healthy
+  environment: &app-env
+    SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+    SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/lumina
+    SPRING_DATASOURCE_USERNAME: lumina
+    SPRING_DATASOURCE_PASSWORD: lumina
+    LUMINA_KAFKA_PARTITIONS: "6"
+    LUMINA_TRACING_SAMPLING: ${LUMINA_TRACING_SAMPLING:-0}
+    OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://jaeger:4318/v1/traces
+    LOGGING_STRUCTURED_FORMAT_CONSOLE: ecs
+  healthcheck: &app-health
+    test: ["CMD-SHELL", "wget -qO- http://localhost:8081/actuator/health/readiness | grep -q UP"]
+    interval: 5s
+    timeout: 3s
+    retries: 24
+    start_period: 20s
+
 services:
   kafka:
-    image: apache/kafka:3.8.0
+    image: apache/kafka:4.1.0
     hostname: kafka
     ports:
       - "9092:9092"
@@ -17,55 +48,111 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+    volumes:
+      - kafka-data:/var/lib/kafka/data
     healthcheck:
-      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:29092 || exit 1"]
-      interval: 10s
-      timeout: 10s
-      retries: 10
-      start_period: 30s
-
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:29092 >/dev/null 2>&1"]
       interval: 5s
-      timeout: 3s
-      retries: 5
-      start_period: 5s
+      timeout: 10s
+      retries: 20
+      start_period: 15s
 
-  app:
-    build: .
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: lumina
+      POSTGRES_USER: lumina
+      POSTGRES_PASSWORD: lumina
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lumina -d lumina"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  # Matching: one active owner per command-topic partition. Scale by adding replicas up to the
+  # partition count, never beyond it.
+  engine:
+    <<: *app
+    environment:
+      <<: *app-env
+      LUMINA_ROLES: engine
+      OTEL_SERVICE_NAME: lumina-engine
+
+  projector:
+    <<: *app
+    environment:
+      <<: *app-env
+      LUMINA_ROLES: projector
+      OTEL_SERVICE_NAME: lumina-projector
+
+  api:
+    <<: *app
+    depends_on:
+      engine:
+        condition: service_healthy
+      projector:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    environment:
+      <<: *app-env
+      LUMINA_ROLES: api
+      OTEL_SERVICE_NAME: lumina-api
     ports:
       - "8080:8080"
       - "9090:9090"
-    depends_on:
-      kafka:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    environment:
-      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
-      SPRING_DATA_REDIS_HOST: redis
-      SPRING_DATA_REDIS_PORT: 6379
-      LUMINA_CORS_ALLOWED_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health 2>/dev/null | grep -q '\"status\":\"UP\"' || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 12
-      start_period: 45s
+      - "8081:8081"
 
   frontend:
     build:
       context: ./frontend
-      args:
-        API_INTERNAL_URL: http://app:8080
+    environment:
+      API_INTERNAL_URL: http://api:8080
+      LUMINA_API_KEY: dev-key-trader-1
     ports:
       - "3000:3000"
     depends_on:
-      app:
+      api:
         condition: service_healthy
+
+  prometheus:
+    profiles: [observability]
+    image: prom/prometheus:v3.5.0
+    volumes:
+      - ./deploy/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/observability/alerts.yml:/etc/prometheus/alerts.yml:ro
+    ports:
+      - "9091:9090"
+
+  grafana:
+    profiles: [observability]
+    image: grafana/grafana:12.2.0
     environment:
-      API_INTERNAL_URL: http://app:8080
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/lumina.json
+    volumes:
+      - ./deploy/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3001:3000"
+    depends_on:
+      - prometheus
+
+  jaeger:
+    profiles: [observability]
+    image: jaegertracing/all-in-one:1.76.0
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"
+      - "4318:4318"
+
+volumes:
+  kafka-data:
+  postgres-data:

@@ -1,7 +1,8 @@
 target/
+.git/
 .idea/
-*.iml
-.classpath
-.project
-.settings/
-.mvn/
+.vscode/
+frontend/
+charts/
+docs/
+*.md
